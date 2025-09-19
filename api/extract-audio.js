@@ -1,84 +1,74 @@
-   import { exec } from 'child_process';
-   import { promisify } from 'util';
-   import fs from 'fs';
-   import path from 'path';
-
-   const execAsync = promisify(exec);
-
-   export default async function handler(req, res) {
-     // Set CORS headers
-     res.setHeader('Access-Control-Allow-Origin', '*');
-     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-     
-     if (req.method === 'OPTIONS') {
-       res.status(200).end();
-       return;
-     }
-     
-     if (req.method !== 'POST') {
-       return res.status(405).json({ error: 'Method not allowed' });
-     }
-     
-     try {
-       const { url } = req.body;
-       
-       if (!url) {
-         return res.status(400).json({ error: 'URL is required' });
-       }
-       
-       // Validate TikTok URL
-       if (!url.includes('tiktok.com')) {
-         return res.status(400).json({ error: 'Invalid TikTok URL' });
-       }
-       
-       // Create temporary directory
-       const tempDir = '/tmp/tiktok-audio';
-       if (!fs.existsSync(tempDir)) {
-         fs.mkdirSync(tempDir, { recursive: true });
-       }
-       
-       // Generate unique filename
-       const timestamp = Date.now();
-       const outputPath = path.join(tempDir, `audio_${timestamp}.mp3`);
-       
-       // yt-dlp command
-       const command = `yt-dlp --extract-audio --audio-format mp3 --audio-quality 0 --output "${outputPath}" --no-playlist "${url}"`;
-       
-       console.log('Executing:', command);
-       
-       // Execute yt-dlp
-       const { stdout, stderr } = await execAsync(command);
-       
-       if (stderr && !stderr.includes('warning')) {
-         console.error('yt-dlp error:', stderr);
-         return res.status(500).json({ error: 'Audio extraction failed' });
-       }
-       
-       // Check if file was created
-       if (!fs.existsSync(outputPath)) {
-         return res.status(500).json({ error: 'Audio file not found' });
-       }
-       
-       // Get file info
-       const stats = fs.statSync(outputPath);
-       const fileBuffer = fs.readFileSync(outputPath);
-       
-       // Clean up file
-       fs.unlinkSync(outputPath);
-       
-       // Return audio data
-       res.setHeader('Content-Type', 'audio/mpeg');
-       res.setHeader('Content-Length', stats.size);
-       res.setHeader('Content-Disposition', `attachment; filename="tiktok_audio_${timestamp}.mp3"`);
-       
-       res.status(200).send(fileBuffer);
-       
-     } catch (error) {
-       console.error('Error:', error);
-       res.status(500).json({ 
-         error: 'Internal server error',
-         details: error.message 
-       });
-     }
-   }
+export default async function handler(req, res) {
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+  
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  
+  try {
+    const { url } = req.body;
+    
+    if (!url) {
+      return res.status(400).json({ error: 'URL is required' });
+    }
+    
+    // Validate TikTok URL
+    if (!url.includes('tiktok.com')) {
+      return res.status(400).json({ error: 'Invalid TikTok URL' });
+    }
+    
+    // Use cobalt.tools API for TikTok audio extraction
+    const cobaltResponse = await fetch('https://api.cobalt.tools/api/json', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url: url,
+        vQuality: 'best',
+        aFormat: 'mp3',
+        isAudioOnly: true
+      })
+    });
+    
+    if (!cobaltResponse.ok) {
+      throw new Error(`Cobalt API error: ${cobaltResponse.status}`);
+    }
+    
+    const cobaltData = await cobaltResponse.json();
+    
+    if (cobaltData.status === 'success' && cobaltData.url) {
+      // Download the audio file
+      const audioResponse = await fetch(cobaltData.url);
+      if (!audioResponse.ok) {
+        throw new Error('Failed to download audio file');
+      }
+      
+      const audioBuffer = await audioResponse.arrayBuffer();
+      
+      // Return the audio data
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Content-Length', audioBuffer.byteLength);
+      res.setHeader('Content-Disposition', `attachment; filename="tiktok_audio_${Date.now()}.mp3"`);
+      
+      res.status(200).send(Buffer.from(audioBuffer));
+    } else {
+      throw new Error(cobaltData.text || 'Audio extraction failed');
+    }
+    
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message 
+    });
+  }
+}
