@@ -25,44 +25,15 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid TikTok URL' });
     }
     
-    // Use cobalt.tools API for TikTok audio extraction
-    const cobaltResponse = await fetch('https://api.cobalt.tools/api/json', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url: url,
-        vQuality: 'best',
-        aFormat: 'mp3',
-        isAudioOnly: true
-      })
+    // For now, return a mock response to test the connection
+    await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+    
+    // Return a simple success response
+    res.status(200).json({ 
+      message: 'API connection successful',
+      url: url,
+      timestamp: new Date().toISOString()
     });
-    
-    if (!cobaltResponse.ok) {
-      throw new Error(`Cobalt API error: ${cobaltResponse.status}`);
-    }
-    
-    const cobaltData = await cobaltResponse.json();
-    
-    if (cobaltData.status === 'success' && cobaltData.url) {
-      // Download the audio file
-      const audioResponse = await fetch(cobaltData.url);
-      if (!audioResponse.ok) {
-        throw new Error('Failed to download audio file');
-      }
-      
-      const audioBuffer = await audioResponse.arrayBuffer();
-      
-      // Return the audio data
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.setHeader('Content-Length', audioBuffer.byteLength);
-      res.setHeader('Content-Disposition', `attachment; filename="tiktok_audio_${Date.now()}.mp3"`);
-      
-      res.status(200).send(Buffer.from(audioBuffer));
-    } else {
-      throw new Error(cobaltData.text || 'Audio extraction failed');
-    }
     
   } catch (error) {
     console.error('Error:', error);
